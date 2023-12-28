@@ -1,3 +1,6 @@
+"""Script reads 2 json files, loads data into database, makes queries and saves results in xml or json format"""
+
+
 import os
 
 import click
@@ -20,8 +23,8 @@ class Model:
                       user: str, db_name: str) -> None:
         try:
             self.db_connector = mysql.connector.connect(host=host,
-                                                    user=user,
-                                                    password=password)
+                                                        user=user,
+                                                        password=password)
             logging.info("Connected to database's server")
         except Exception as e:
             logging.error("Could not connect to database's server", exc_info=True)
@@ -41,7 +44,7 @@ class Model:
                                          CONSTRAINT fk_rooms FOREIGN KEY (room) REFERENCES rooms(id))""")
 
     def clean_db(self):
-        """Cleanes database for next operations"""
+        """Cleans database for next operations"""
         self.db_cursor.execute("DELETE FROM students")
         self.db_cursor.execute("DELETE FROM rooms")
 
@@ -63,86 +66,90 @@ class Model:
         self.db_connector.commit()
         students = self.get_json_file_data(students_json_filepath)
         students = [tuple(i.values()) for i in students]
-        self.db_cursor.executemany("INSERT INTO students (birthday, id, name, room, sex) VALUES (%s, %s, %s, %s, %s)", students)
+        self.db_cursor.executemany("INSERT INTO students (birthday, id, name, room, sex) VALUES (%s, %s, %s, %s, %s)",
+                                   students)
         self.db_connector.commit()
         logging.info("Successfully loaded data to database.")
 
-
     def execute_queries_and_save(self, format: str) -> None:
         """Executes necessary queries and saves results in appropriate format"""
-        self.db_cursor.execute("""SELECT r.name, COUNT(*)
+        self.execute_query_and_save("""SELECT r.name, COUNT(*)
          FROM rooms r 
          INNER JOIN students s 
          ON r.id = s.room
-         GROUP BY r.id""")
-        logging.info("Query 1 executed successfully")
-        self.save_data_to_file([dict([("name", i[0]), ("count", i[1])]) for i in self.db_cursor.fetchall()],
-                               "output/query1.")
-        self.db_cursor.execute("""SELECT r.name
+         GROUP BY r.id""", ["name", "count"], format, "query1")
+
+        self.execute_query_and_save("""SELECT r.name
                  FROM rooms r 
                  INNER JOIN students s 
                  ON r.id = s.room
                  GROUP BY r.id
                  ORDER BY AVG(DATEDIFF(NOW(), s.birthday))
-                 LIMIT 5""")
-        logging.info("Query 2 executed successfully")
-        self.save_data_to_file([dict([("name", i[0])]) for i in self.db_cursor.fetchall()],
-                               "output/query2.")
-        self.db_cursor.execute("""SELECT r.name, DATEDIFF(MAX(s.birthday), MIN(s.birthday))
+                 LIMIT 5""", ["name"], format, "query2")
+        self.execute_query_and_save("""SELECT r.name
                          FROM rooms r 
                          INNER JOIN students s 
                          ON r.id = s.room
                          GROUP BY r.id
                          ORDER BY DATEDIFF(MAX(s.birthday), MIN(s.birthday)) DESC
-                         LIMIT 5""")
-        logging.info("Query 3 executed successfully")
-        self.save_data_to_file([dict([("name", i[0])]) for i in self.db_cursor.fetchall()],
-                               "output/query3.")
-        self.db_cursor.execute("""SELECT r.name
+                         LIMIT 5""", ["name"], format, "query3")
+        self.execute_query_and_save("""SELECT r.name
                                  FROM rooms r 
                                  INNER JOIN students s 
                                  ON r.id = s.room
                                  GROUP BY r.id
-                                 HAVING COUNT(DISTINCT s.sex)=2""")
-        logging.info("Query 4 executed successfully")
-        self.save_data_to_file([dict([("name", i[0])]) for i in self.db_cursor.fetchall()],
-                               "output/query4.")
+                                 HAVING COUNT(DISTINCT s.sex)=2""", ["name"], format, "query4")
+
+    def execute_query_and_save(self, query: str, col_names: list[str], file_format: str, query_name: str) -> None:
+        """Executes query and saves result in appropriate format"""
+        self.db_cursor.execute(query)
+        data = self.db_cursor.fetchall()
+        data = [dict(zip(col_names, i)) for i in data]
+        self.save_data_to_file(data, file_format, query_name)
+        logging.info(f"Query \"{query_name}\"executed successfully")
+
+    def create_indexes(self):
+        try:
+            self.db_cursor.execute("CREATE INDEX idx_birthday ON students (birthday)")
+        except:
+            pass
 
     @staticmethod
-    def save_data_to_json(data: list, filename: str) -> None:
+    def save_data_to_json(data: list, filepath: str) -> None:
         """Saves data into json file"""
         try:
-            with open(filename+"json", "w") as f:
+            with open(filepath, "w") as f:
                 f.write(json.dumps(data))
-            logging.info(f"Successfully saved data into json file: {filename}")
+            logging.info(f"Successfully saved data into json file: {filepath}")
         except Exception as e:
-            logging.error(f"Could not write data into json file: {filename}")
+            logging.error(f"Could not write data into json file: {filepath}")
             raise e
 
     @staticmethod
-    def save_data_to_xml(data: list, filename: str) -> None:
-        """Saves data into json file"""
+    def save_data_to_xml(data: list, filepath: str) -> None:
+        """Saves data into xml file"""
         try:
-            with open(filename+"xml", "w") as f:
+            with open(filepath, "w") as f:
                 root = ET.Element('data')
                 for item in data:
                     entry = ET.SubElement(root, "entry")
                     for key, value in item.items():
                         sub_element = ET.SubElement(entry, key)
-                        sub_element.text = value
+                        sub_element.text = str(value)
                 tree = ET.ElementTree(root)
-                tree.write(filename, encoding="utf-8", xml_declaration=True)
-            logging.info(f"Successfully saved data into xml file: {filename}")
+                tree.write(filepath, encoding="utf-8", xml_declaration=True)
+            logging.info(f"Successfully saved data into xml file: {filepath}")
         except Exception as e:
-            logging.error(f"Could not write data into xml file: {filename}")
+            logging.error(f"Could not write data into xml file: {filepath}")
             raise e
 
-    def save_data_to_file(self, data: list, format: str) -> None:
+    def save_data_to_file(self, data: list, format: str, filename: str) -> None:
         """Saves data in appropriate format"""
+        filepath = "output\\"+filename+"."+format
         if "json" in format.lower():
-            self.save_data_to_json(data, format)
+            self.save_data_to_json(data, filepath)
         elif "xml" in format.lower():
-            self.save_data_to_xml(data, format)
+            self.save_data_to_xml(data, filepath)
         else:
             logging.error("Unknown output file format")
             raise Exception
@@ -159,10 +166,14 @@ def main(stud_filepath, rooms_filepath, file_format):
     host = os.getenv("DB_HOST")
     pwd = os.getenv("DB_PASSWORD")
     db_name = os.getenv("DB_NAME")
-    m.connect_to_db(pwd, host, user, db_name)
-    m.clean_db()
-    m.load_data_to_database(stud_filepath, rooms_filepath)
-    m.execute_queries_and_save(file_format)
+    try:
+        m.connect_to_db(pwd, host, user, db_name)
+        m.clean_db()
+        m.load_data_to_database(stud_filepath, rooms_filepath)
+        m.create_indexes()
+        m.execute_queries_and_save(file_format)
+    except Exception as e:
+        logging.exception(e)
 
 
 if __name__ == "__main__":
