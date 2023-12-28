@@ -86,6 +86,7 @@ class Model:
                  GROUP BY r.id
                  ORDER BY AVG(DATEDIFF(NOW(), s.birthday))
                  LIMIT 5""", ["name"], format, "query2")
+
         self.execute_query_and_save("""SELECT r.name
                          FROM rooms r 
                          INNER JOIN students s 
@@ -93,6 +94,7 @@ class Model:
                          GROUP BY r.id
                          ORDER BY DATEDIFF(MAX(s.birthday), MIN(s.birthday)) DESC
                          LIMIT 5""", ["name"], format, "query3")
+
         self.execute_query_and_save("""SELECT r.name
                                  FROM rooms r 
                                  INNER JOIN students s 
